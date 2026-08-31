@@ -3,16 +3,41 @@
 // The replicated state machine. Deliberately boring: given the same sequence of
 // commands it must produce the same sequence of results on every node, because
 // the whole safety argument downstream depends on that.
+//
+// It also carries the client session table from section 6.3 of the Raft paper.
+// Without it a client that retries after a timeout can get its command into the
+// log twice, and then a single logical operation would take effect twice, which
+// no amount of consensus correctness can fix.
 
 class KvStore {
   constructor() {
     this.map = new Map();
+    this.sessions = new Map(); // client id -> { seq, result }
     this.applied = 0;
+    this.deduped = 0;
   }
 
   apply(cmd) {
     this.applied++;
     if (cmd === null || cmd === undefined) return null; // no-op entry
+
+    if (cmd.cid !== undefined) {
+      const last = this.sessions.get(cmd.cid);
+      if (last !== undefined && cmd.seq <= last.seq) {
+        this.deduped++;
+        // Exactly the sequence number we already answered: hand back the same
+        // answer. Anything older is a straggler from a request the client has
+        // already given up on, and must not be replayed.
+        return cmd.seq === last.seq ? last.result : { ok: true, stale: true, value: null };
+      }
+    }
+
+    const result = this.execute(cmd);
+    if (cmd.cid !== undefined) this.sessions.set(cmd.cid, { seq: cmd.seq, result: result });
+    return result;
+  }
+
+  execute(cmd) {
     switch (cmd.op) {
       case 'put': {
         this.map.set(cmd.key, cmd.value);
@@ -41,18 +66,21 @@ class KvStore {
   }
 
   // Order independent digest so two nodes can be compared cheaply. FNV-1a over
-  // the sorted key/value pairs; collisions are irrelevant at this scale and the
-  // tests compare the full maps anyway when a digest mismatch shows up.
+  // the sorted key/value pairs plus the session watermarks, since the session
+  // table is part of the replicated state too. Collisions do not worry me here
+  // because every test that compares digests also compares the full maps when
+  // they disagree.
   digest() {
-    const keys = Array.from(this.map.keys()).sort();
     let h = 0x811c9dc5;
-    for (const k of keys) {
-      const s = k + '=' + String(this.map.get(k)) + ';';
+    const mix = function (s) {
       for (let i = 0; i < s.length; i++) {
         h ^= s.charCodeAt(i);
         h = Math.imul(h, 0x01000193) >>> 0;
       }
-    }
+    };
+    for (const k of Array.from(this.map.keys()).sort()) mix(k + '=' + String(this.map.get(k)) + ';');
+    mix('|');
+    for (const c of Array.from(this.sessions.keys()).sort()) mix(c + '@' + this.sessions.get(c).seq + ';');
     return h >>> 0;
   }
 
