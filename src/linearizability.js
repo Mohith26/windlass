@@ -86,20 +86,21 @@ function checkRegister(ops, opts) {
     for (let i = 0; i < rem.length; i++) {
       const o = rem[i];
       if (o.inv > minRet) continue; // something else already returned before this started
-      const next = applyOp(state, o);
+      const next = applyOp(state, o.op);
       if (o.result !== UNKNOWN && !sameResult(next.result, o.result)) continue;
       const rest = rem.slice(0, i).concat(rem.slice(i + 1));
       if (search(rest, next.state)) return true;
       if (exhausted) return false;
     }
 
-    // A pending operation is allowed to have never taken effect at all.
+    // A pending operation is allowed to have never taken effect at all. Drops
+    // commute with everything, so offering the branch on the earliest pending
+    // operation only is still complete and keeps the fan out small.
     for (let i = 0; i < rem.length; i++) {
-      const o = rem[i];
-      if (o.ret !== Infinity) continue;
+      if (rem[i].ret !== Infinity) continue;
       const rest = rem.slice(0, i).concat(rem.slice(i + 1));
       if (search(rest, state)) return true;
-      if (exhausted) return false;
+      return false;
     }
     return false;
   }
