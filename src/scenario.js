@@ -18,6 +18,7 @@ const SCENARIO_DEFAULTS = {
   duration: 20000,
   settle: 6000,
   faultEvery: 900,
+  maxDownFraction: 0.5, // fraction of the cluster allowed to be down at once
   dropRate: 0.02,
   dupRate: 0.01,
   latencyMin: 5,
@@ -30,28 +31,39 @@ const SCENARIO_DEFAULTS = {
   mutate: null,
 };
 
+// Purely random partitions turned out to be a weak fuzzer: the interesting Raft
+// bugs all live in the moment a leader loses contact with a majority while some
+// of its entries are already out there. So most of the weight goes on faults
+// that are aimed at whoever is currently leading.
 function buildFaultScript(rng, opts) {
   const script = [];
-  const maxDown = Math.floor((opts.n - 1) / 2);
+  const maxDown = Math.max(1, Math.floor(opts.n * opts.maxDownFraction));
   let t = opts.faultEvery;
   let partitioned = false;
   let down = 0;
   while (t < opts.duration) {
     const roll = rng.float();
-    if (partitioned && roll < 0.35) {
+    if (partitioned && roll < 0.30) {
       script.push({ at: t, kind: 'heal' });
       partitioned = false;
-    } else if (down > 0 && roll < 0.55) {
+    } else if (down > 0 && roll < 0.50) {
       script.push({ at: t, kind: 'restart' });
       down--;
-    } else if (!partitioned && roll < 0.78) {
+    } else if (roll < 0.62) {
+      script.push({ at: t, kind: 'isolate-leader' });
+      partitioned = true;
+    } else if (roll < 0.74) {
+      script.push({ at: t, kind: 'minority-leader' });
+      partitioned = true;
+    } else if (roll < 0.84) {
       script.push({ at: t, kind: 'partition' });
       partitioned = true;
     } else if (down < maxDown) {
-      script.push({ at: t, kind: 'crash' });
+      script.push({ at: t, kind: roll < 0.94 ? 'crash-leader' : 'crash' });
       down++;
     } else {
-      script.push({ at: t, kind: 'noop' });
+      script.push({ at: t, kind: 'restart' });
+      if (down > 0) down--;
     }
     t += rng.range(Math.floor(opts.faultEvery / 2), opts.faultEvery * 2);
   }
@@ -71,6 +83,59 @@ function applyFault(cluster, fault, rng) {
     case 'heal':
       cluster.heal();
       break;
+    // Cut the leader off completely. Whatever it had replicated to a minority
+    // just before the cut is exactly the material a Figure 8 style bug needs.
+    case 'isolate-leader': {
+      const ls = cluster.leaders();
+      if (ls.length === 0) break;
+      const lead = ls[0];
+      cluster.isolate(lead);
+      fault.detail = lead;
+      break;
+    }
+    // Leave the leader connected to a minority so it keeps appending entries it
+    // can never commit, then let the majority elect someone else.
+    case 'minority-leader': {
+      const ls = cluster.leaders();
+      if (ls.length === 0) break;
+      const lead = ls[0];
+      const others = cluster.ids.filter(function (x) { return x !== lead; });
+      rng.shuffle(others);
+      const withLeader = others.slice(0, Math.max(0, Math.floor((cluster.ids.length - 1) / 2) - 1));
+      const rest = others.slice(withLeader.length);
+      cluster.partition([[lead].concat(withLeader), rest]);
+      fault.detail = lead + '+' + withLeader.join('+') + ' | ' + rest.join('+');
+      break;
+    }
+    case 'crash-leader': {
+      const ls = cluster.leaders();
+      const victim = ls.length > 0 ? ls[0] : null;
+      if (victim === null) {
+        const up = cluster.ids.filter(function (id) { return !cluster.down.has(id); });
+        if (up.length === 0) break;
+        cluster.crash(rng.pick(up));
+        break;
+      }
+      cluster.crash(victim);
+      fault.detail = victim;
+      break;
+    }
+    case 'crash': {
+      const up = cluster.ids.filter(function (id) { return !cluster.down.has(id); });
+      if (up.length === 0) break;
+      const victim = rng.pick(up);
+      cluster.crash(victim);
+      fault.detail = victim;
+      break;
+    }
+    case 'restart': {
+      const dead = Array.from(cluster.down);
+      if (dead.length === 0) break;
+      const lucky = rng.pick(dead);
+      cluster.restart(lucky);
+      fault.detail = lucky;
+      break;
+    }
     default:
       break;
   }
