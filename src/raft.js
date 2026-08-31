@@ -319,8 +319,13 @@ class RaftNode {
     const lastNew = msg.entries.length > 0
       ? msg.entries[msg.entries.length - 1].index
       : msg.prevLogIndex;
+    // The paper writes this as min(leaderCommit, index of last new entry). Taken
+    // literally that lets commitIndex move backwards: a delayed AppendEntries
+    // carrying a low prevLogIndex and no entries has a small "last new entry"
+    // even though leaderCommit is large. Clamping against the current value is
+    // the missing half of the rule.
     if (msg.leaderCommit > this.commitIndex) {
-      this.commitIndex = Math.min(msg.leaderCommit, lastNew);
+      this.commitIndex = Math.max(this.commitIndex, Math.min(msg.leaderCommit, lastNew));
     }
 
     this.send({
