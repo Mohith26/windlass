@@ -23,7 +23,11 @@ function cmdKey(cmd) {
 }
 
 class InvariantChecker {
-  constructor() {
+  // incremental defaults to true. Setting it to false restores the original
+  // rescan-everything behaviour, which is kept only so the benchmark can measure
+  // the difference honestly instead of quoting a number from memory.
+  constructor(opts) {
+    this.incremental = !(opts && opts.incremental === false);
     this.violations = [];
     this.leaderByTerm = new Map();
     this.entryByIndexTerm = new Map();
@@ -76,7 +80,9 @@ class InvariantChecker {
       // truncation happened and the whole prefix has to be re-examined.
       let diverge;
       const prevLen = prev.terms.length;
-      if (len >= prevLen && prevLen > 0 && node.log[prevLen - 1].term === prev.terms[prevLen - 1]) {
+      if (!this.incremental) {
+        diverge = 0;
+      } else if (len >= prevLen && prevLen > 0 && node.log[prevLen - 1].term === prev.terms[prevLen - 1]) {
         diverge = prevLen;
       } else if (prevLen === 0) {
         diverge = 0;
@@ -160,7 +166,7 @@ class InvariantChecker {
       else mark.value = node.commitIndex;
 
       let scan = this.commitScan.get(id);
-      if (scan === undefined || scan.node !== node) {
+      if (scan === undefined || scan.node !== node || !this.incremental) {
         scan = { node: node, upTo: 0 };
         this.commitScan.set(id, scan);
       }

@@ -1,0 +1,56 @@
+{
+  "electionAfterLeaderCrashVirtualMs": {
+    "3": {
+      "count": 60,
+      "min": 122,
+      "p50": 222,
+      "p90": 423,
+      "p99": 572,
+      "max": 572,
+      "mean": 248.23
+    },
+    "5": {
+      "count": 60,
+      "min": 126,
+      "p50": 184,
+      "p90": 241,
+      "p99": 522,
+      "max": 522,
+      "mean": 194.9
+    },
+    "7": {
+      "count": 60,
+      "min": 133,
+      "p50": 179,
+      "p90": 329,
+      "p99": 504,
+      "max": 504,
+      "mean": 197.37
+    },
+    "noLeaderWithinWindow": 0,
+    "note": "election timeout window is 150 to 300 virtual ms, one way link latency 5 to 20"
+  },
+  "clientLatencyVirtualMs": {
+    "quietNetwork": {
+      "count": 26191,
+      "min": 11,
+      "p50": 22,
+      "p90": 27,
+      "p99": 32,
+      "max": 197,
+      "mean": 22.85
+    },
+    "lossyNetwork": {
+      "count": 18471,
+      "min": 14,
+      "p50": 41,
+      "p90": 52,
+      "p99": 63,
+      "max": 724,
+      "mean": 41.68
+    },
+    "quietOps": 26191,
+    "lossyOps": 18471
+  },
+  "wallMs": 1691
+}

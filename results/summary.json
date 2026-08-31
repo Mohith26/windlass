@@ -1,0 +1,23 @@
+{
+  "generatedBy": "bench/run.js",
+  "totalWallMs": 65164,
+  "sweep": {
+    "runs": 600,
+    "wallMs": 38353,
+    "clientOpsCompleted": 287723,
+    "committedEntries": 348845,
+    "simulatorSteps": 5743860,
+    "messagesSent": 22472253,
+    "failures": 0,
+    "simulatorStepsPerSecond": 149763,
+    "committedEntriesPerSecond": 9096
+  },
+  "mutationAllDetected": true,
+  "mutationControlClean": {
+    "seeds": 40,
+    "clean": 40,
+    "failures": 0
+  },
+  "checkerSpeedupAtLargest": 170.7,
+  "electionP50VirtualMs": 184
+}

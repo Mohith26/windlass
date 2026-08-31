@@ -1,0 +1,98 @@
+{
+  "seedsPerMutant": 40,
+  "mutants": [
+    {
+      "mutant": "vote-without-log-check",
+      "seeds": 40,
+      "detectedBy": "fuzz",
+      "seedsDetected": 36,
+      "firstSeed": 1,
+      "detectionRate": 0.9,
+      "invariantsFired": [
+        "committed-stability",
+        "leader-completeness",
+        "linearizability",
+        "state-machine-safety"
+      ]
+    },
+    {
+      "mutant": "commit-across-terms",
+      "seeds": 40,
+      "detectedBy": "scripted",
+      "seedsDetected": 0,
+      "firstSeed": null,
+      "detectionRate": 0,
+      "invariantsFired": [
+        "committed-stability",
+        "leader-completeness",
+        "state-machine-safety"
+      ],
+      "scriptedCase": "figure8"
+    },
+    {
+      "mutant": "forget-vote-on-crash",
+      "seeds": 40,
+      "detectedBy": "scripted",
+      "seedsDetected": 0,
+      "firstSeed": null,
+      "detectionRate": 0,
+      "invariantsFired": [
+        "election-safety"
+      ],
+      "scriptedCase": "duplicateVote"
+    },
+    {
+      "mutant": "blind-truncate",
+      "seeds": 40,
+      "detectedBy": "fuzz",
+      "seedsDetected": 14,
+      "firstSeed": 4,
+      "detectionRate": 0.35,
+      "invariantsFired": [
+        "committed-stability",
+        "leader-completeness",
+        "linearizability",
+        "state-machine-safety"
+      ]
+    },
+    {
+      "mutant": "accept-stale-append",
+      "seeds": 40,
+      "detectedBy": "fuzz",
+      "seedsDetected": 2,
+      "firstSeed": 16,
+      "detectionRate": 0.05,
+      "invariantsFired": [
+        "committed-stability",
+        "leader-completeness",
+        "linearizability",
+        "state-machine-safety"
+      ]
+    },
+    {
+      "mutant": "small-quorum",
+      "seeds": 40,
+      "detectedBy": "fuzz",
+      "seedsDetected": 40,
+      "firstSeed": 1,
+      "detectionRate": 1,
+      "invariantsFired": [
+        "committed-stability",
+        "convergence",
+        "election-safety",
+        "leader-completeness",
+        "linearizability",
+        "log-matching",
+        "log-matching-prefix",
+        "state-machine-safety"
+      ]
+    }
+  ],
+  "control": {
+    "seeds": 40,
+    "clean": 40,
+    "failures": 0
+  },
+  "allDetected": true,
+  "wallMs": 14849
+}

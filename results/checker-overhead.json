@@ -1,0 +1,57 @@
+{
+  "points": [
+    {
+      "virtualMs": 1500,
+      "committedEntries": 75,
+      "simulatorSteps": 1097,
+      "noCheckerMs": 6,
+      "rescanMs": 232,
+      "incrementalMs": 8,
+      "speedup": 29,
+      "incrementalOverhead": 1.3,
+      "checks": 9223,
+      "truncationRescans": 0,
+      "violations": 0
+    },
+    {
+      "virtualMs": 3000,
+      "committedEntries": 173,
+      "simulatorSteps": 2563,
+      "noCheckerMs": 6,
+      "rescanMs": 1227,
+      "incrementalMs": 14,
+      "speedup": 87.6,
+      "incrementalOverhead": 2.3,
+      "checks": 22233,
+      "truncationRescans": 0,
+      "violations": 0
+    },
+    {
+      "virtualMs": 4500,
+      "committedEntries": 276,
+      "simulatorSteps": 4039,
+      "noCheckerMs": 8,
+      "rescanMs": 3092,
+      "incrementalMs": 25,
+      "speedup": 123.7,
+      "incrementalOverhead": 3.1,
+      "checks": 36465,
+      "truncationRescans": 0,
+      "violations": 0
+    },
+    {
+      "virtualMs": 6000,
+      "committedEntries": 374,
+      "simulatorSteps": 5488,
+      "noCheckerMs": 11,
+      "rescanMs": 5632,
+      "incrementalMs": 33,
+      "speedup": 170.7,
+      "incrementalOverhead": 3,
+      "checks": 49098,
+      "truncationRescans": 0,
+      "violations": 0
+    }
+  ],
+  "wallMs": 10297
+}
