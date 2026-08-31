@@ -61,17 +61,29 @@ function buildFaultScript(rng, opts) {
     } else if (down < maxDown) {
       script.push({ at: t, kind: roll < 0.94 ? 'crash-leader' : 'crash' });
       down++;
+    } else if (roll < 0.97) {
+      script.push({ at: t, kind: 'quiesce' });
     } else {
       script.push({ at: t, kind: 'restart' });
       if (down > 0) down--;
     }
+    if (script[script.length - 1].kind === 'quiesce') {
+      script.push({ at: t + rng.range(300, 1200), kind: 'resume' });
+    }
     t += rng.range(Math.floor(opts.faultEvery / 2), opts.faultEvery * 2);
   }
+  script.sort(function (a, b) { return a.at - b.at; });
   return script;
 }
 
-function applyFault(cluster, fault, rng) {
+function applyFault(cluster, fault, rng, pool) {
   switch (fault.kind) {
+    case 'quiesce':
+      if (pool) pool.paused = true;
+      break;
+    case 'resume':
+      if (pool) pool.paused = false;
+      break;
     case 'partition': {
       const ids = cluster.ids.slice();
       rng.shuffle(ids);
@@ -160,7 +172,7 @@ function runScenario(userOpts) {
   const started = Date.now();
   while (cluster.now < opts.duration) {
     while (next < script.length && script[next].at <= cluster.now) {
-      applyFault(cluster, script[next], faultRng);
+      applyFault(cluster, script[next], faultRng, pool);
       next++;
     }
     if (!cluster.step()) cluster.runFor(10);
@@ -170,6 +182,7 @@ function runScenario(userOpts) {
   // Recovery window: no more faults, everything comes back, and the cluster gets
   // a fair chance to converge before anything is asserted about it.
   cluster.heal();
+  pool.paused = false;
   for (const id of Array.from(cluster.down)) cluster.restart(id);
   const settleUntil = cluster.now + opts.settle;
   while (cluster.now < settleUntil) {

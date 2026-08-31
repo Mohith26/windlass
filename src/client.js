@@ -36,6 +36,11 @@ class ClientPool {
       });
     }
     this.cursor = 0;
+    // When the pool is paused, in flight requests still complete but no new
+    // ones start. Idle windows matter more than they sound: a leader that has
+    // uncommitted entries from an older term and no new traffic is the only
+    // situation where the figure 8 commit rule is doing any work at all.
+    this.paused = false;
     const self = this;
     cluster.observe(function () { self.harvest(); });
   }
@@ -74,7 +79,7 @@ class ClientPool {
         }
         continue;
       }
-      if (now >= client.nextIssueAt) {
+      if (!this.paused && now >= client.nextIssueAt) {
         client.seq++;
         const op = this.randomOp();
         const id = client.cid + '#' + client.seq;
