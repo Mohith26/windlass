@@ -12,6 +12,11 @@ const { LEADER } = require('./raft');
 //                           implies identical logs up to that point
 //   4. Leader Completeness  a committed entry survives in every future leader
 //   5. State Machine Safety no two nodes apply different commands at an index
+//
+// Everything here runs after every single node step, so all of it is written to
+// touch only what changed since the previous call. The first version rescanned
+// each log from index 0 on every check and that alone was three hundred times
+// slower than the simulation it was watching.
 
 function cmdKey(cmd) {
   return cmd === null || cmd === undefined ? 'null' : JSON.stringify(cmd);
@@ -26,9 +31,10 @@ class InvariantChecker {
     this.committed = new Map();
     this.commitWatermark = new Map();
     this.shadow = new Map();
-    this.nodeRef = new Map();
+    this.commitScan = new Map();
     this.applyCursor = 0;
     this.checks = 0;
+    this.rescans = 0; // how often a truncation forced the slow path
   }
 
   fail(rule, detail) {
@@ -49,34 +55,45 @@ class InvariantChecker {
     this.checkApplied(cluster);
   }
 
-  // Walks each live node's log, but only when something plausibly changed. A
-  // truncation is always followed by appends from a higher term, so a change in
-  // either the length or the last term is enough to trigger the full rescan.
   checkLogs(cluster) {
     for (const id of cluster.ids) {
       if (cluster.down.has(id)) continue;
       const node = cluster.nodes.get(id);
-      const prev = this.shadow.get(id);
       const len = node.log.length;
       const lastTerm = node.log[len - 1].term;
-      if (prev && prev.len === len && prev.lastTerm === lastTerm) continue;
+      let prev = this.shadow.get(id);
 
-      // Leader Append-Only: while this object has been leader its log may only
-      // grow, never change underneath.
-      if (prev && prev.wasLeader && this.nodeRef.get(id) === node) {
-        for (let i = 0; i < prev.terms.length; i++) {
-          if (i >= len || node.log[i].term !== prev.terms[i]) {
-            this.fail('leader-append-only',
-              id + ' rewrote index ' + i + ' while leader (term ' + prev.terms[i] + ' -> ' +
-              (i < len ? node.log[i].term : 'missing') + ')');
-            break;
-          }
-        }
+      if (prev !== undefined && prev.node === node && prev.len === len && prev.lastTerm === lastTerm) continue;
+
+      if (prev === undefined || prev.node !== node) {
+        // First sight of this incarnation, for example straight after a restart.
+        prev = { node: node, terms: [], len: 0, lastTerm: -1, wasLeader: false };
+        this.shadow.set(id, prev);
       }
 
-      // Log Matching: register every entry under index:term and complain if two
-      // nodes ever disagree about what lives there.
-      for (let i = 1; i < len; i++) {
+      // Fast path: the log only grew and the entry at the old tail is unchanged,
+      // which is what an ordinary append looks like. Anything else means a
+      // truncation happened and the whole prefix has to be re-examined.
+      let diverge;
+      const prevLen = prev.terms.length;
+      if (len >= prevLen && prevLen > 0 && node.log[prevLen - 1].term === prev.terms[prevLen - 1]) {
+        diverge = prevLen;
+      } else if (prevLen === 0) {
+        diverge = 0;
+      } else {
+        this.rescans++;
+        diverge = 0;
+        const n = Math.min(len, prevLen);
+        while (diverge < n && node.log[diverge].term === prev.terms[diverge]) diverge++;
+      }
+
+      if (prev.wasLeader && diverge < prevLen) {
+        this.fail('leader-append-only',
+          id + ' rewrote index ' + diverge + ' while leader (term ' + prev.terms[diverge] + ' -> ' +
+          (diverge < len ? node.log[diverge].term : 'missing') + ')');
+      }
+
+      for (let i = Math.max(diverge, 1); i < len; i++) {
         const e = node.log[i];
         const key = e.index + ':' + e.term;
         const val = cmdKey(e.cmd);
@@ -88,13 +105,11 @@ class InvariantChecker {
         }
       }
 
-      this.shadow.set(id, {
-        len: len,
-        lastTerm: lastTerm,
-        terms: node.log.map(function (e) { return e.term; }),
-        wasLeader: node.state === LEADER,
-      });
-      this.nodeRef.set(id, node);
+      prev.terms.length = Math.min(prev.terms.length, diverge);
+      for (let i = prev.terms.length; i < len; i++) prev.terms.push(node.log[i].term);
+      prev.len = len;
+      prev.lastTerm = lastTerm;
+      prev.wasLeader = node.state === LEADER;
     }
   }
 
@@ -107,8 +122,8 @@ class InvariantChecker {
       const held = this.leaderByTerm.get(node.currentTerm);
       if (held === undefined) {
         this.leaderByTerm.set(node.currentTerm, id);
-        // Leader Completeness is only meaningful at the moment of election, so
-        // check it the first time this term produces a leader.
+        // Leader Completeness only says something at the moment of election, so
+        // this runs once per term rather than on every check.
         for (const [index, rec] of this.committed) {
           const own = index < node.log.length ? node.log[index] : null;
           if (own === null || own.term !== rec.term) {
@@ -129,15 +144,21 @@ class InvariantChecker {
       if (cluster.down.has(id)) continue;
       const node = cluster.nodes.get(id);
 
-      // commitIndex must never move backwards within one incarnation of a node.
       const mark = this.commitWatermark.get(id);
       if (mark !== undefined && mark.node === node && node.commitIndex < mark.value) {
         this.fail('commit-monotonic',
           id + ' commitIndex went from ' + mark.value + ' back to ' + node.commitIndex);
       }
-      this.commitWatermark.set(id, { node: node, value: node.commitIndex });
+      if (mark === undefined || mark.node !== node) this.commitWatermark.set(id, { node: node, value: node.commitIndex });
+      else mark.value = node.commitIndex;
 
-      for (let i = 1; i <= node.commitIndex && i < node.log.length; i++) {
+      let scan = this.commitScan.get(id);
+      if (scan === undefined || scan.node !== node) {
+        scan = { node: node, upTo: 0 };
+        this.commitScan.set(id, scan);
+      }
+      const top = Math.min(node.commitIndex, node.log.length - 1);
+      for (let i = scan.upTo + 1; i <= top; i++) {
         const e = node.log[i];
         const rec = this.committed.get(i);
         if (rec === undefined) {
@@ -148,6 +169,7 @@ class InvariantChecker {
             ' but ' + id + ' now has term ' + e.term + ' ' + cmdKey(e.cmd));
         }
       }
+      if (top > scan.upTo) scan.upTo = top;
     }
   }
 
@@ -165,10 +187,24 @@ class InvariantChecker {
   }
 
   // A deeper pass worth paying for once at the end of a run: full pairwise log
-  // comparison, plus the prefix half of Log Matching that the incremental check
-  // does not cover.
+  // comparison, which covers the prefix half of Log Matching that the
+  // incremental check skips, plus one last look at every committed index.
   finalCheck(cluster) {
     this.check(cluster);
+    for (const id of cluster.ids) {
+      if (cluster.down.has(id)) continue;
+      const node = cluster.nodes.get(id);
+      const top = Math.min(node.commitIndex, node.log.length - 1);
+      for (let i = 1; i <= top; i++) {
+        const e = node.log[i];
+        const rec = this.committed.get(i);
+        if (rec !== undefined && (rec.term !== e.term || rec.cmd !== cmdKey(e.cmd))) {
+          this.fail('committed-stability',
+            'committed index ' + i + ' was term ' + rec.term + ' but ' + id + ' ends with term ' + e.term);
+        }
+      }
+    }
+
     const live = cluster.ids.filter(function (id) { return !cluster.down.has(id); });
     for (let a = 0; a < live.length; a++) {
       for (let b = a + 1; b < live.length; b++) {
@@ -180,8 +216,8 @@ class InvariantChecker {
             for (let j = 0; j < i; j++) {
               if (la[j].term !== lb[j].term || cmdKey(la[j].cmd) !== cmdKey(lb[j].cmd)) {
                 this.fail('log-matching-prefix',
-                  live[a] + ' and ' + live[b] + ' agree at index ' + i +
-                  ' but differ at index ' + j);
+                  live[a] + ' and ' + live[b] + ' agree at index ' + i + ' but differ at index ' + j);
+                break;
               }
             }
             break;
@@ -196,6 +232,7 @@ class InvariantChecker {
     return {
       ok: this.violations.length === 0,
       checks: this.checks,
+      rescans: this.rescans,
       violations: this.violations.slice(0, 20),
       violationCount: this.violations.length,
     };
