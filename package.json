@@ -1,0 +1,28 @@
+{
+  "name": "windlass",
+  "version": "1.0.0",
+  "description": "A Raft implementation tested with a deterministic network simulator and a linearizability checker",
+  "main": "src/raft.js",
+  "scripts": {
+    "test": "node tests/run.js",
+    "bench": "node bench/run.js",
+    "bench:sweep": "node bench/sweep.js",
+    "bench:mutation": "node bench/mutation.js",
+    "bench:checker": "node bench/checker.js",
+    "bench:latency": "node bench/latency.js"
+  },
+  "keywords": [
+    "raft",
+    "consensus",
+    "distributed-systems",
+    "deterministic-simulation",
+    "linearizability",
+    "fuzzing"
+  ],
+  "author": "Mohith Gajjela",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "private": false
+}
