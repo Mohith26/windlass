@@ -67,7 +67,7 @@ class InvariantChecker {
 
       if (prev === undefined || prev.node !== node) {
         // First sight of this incarnation, for example straight after a restart.
-        prev = { node: node, terms: [], len: 0, lastTerm: -1, wasLeader: false };
+        prev = { node: node, terms: [], len: 0, lastTerm: -1, wasLeader: false, term: -1 };
         this.shadow.set(id, prev);
       }
 
@@ -87,10 +87,16 @@ class InvariantChecker {
         while (diverge < n && node.log[diverge].term === prev.terms[diverge]) diverge++;
       }
 
-      if (prev.wasLeader && diverge < prevLen) {
+      // Only a truncation inside a single leadership epoch breaks this rule. A
+      // node that has since stepped down is allowed, and expected, to have its
+      // tail overwritten by whoever won the next election, so the term has to
+      // match as well as the role. Getting this wrong was my first false
+      // positive: sixty of the first hundred and fifty seeds "failed" on
+      // truncations that happened long after the node stopped being leader.
+      if (prev.wasLeader && node.state === LEADER && node.currentTerm === prev.term && diverge < prevLen) {
         this.fail('leader-append-only',
-          id + ' rewrote index ' + diverge + ' while leader (term ' + prev.terms[diverge] + ' -> ' +
-          (diverge < len ? node.log[diverge].term : 'missing') + ')');
+          id + ' rewrote index ' + diverge + ' while leader in term ' + node.currentTerm +
+          ' (term ' + prev.terms[diverge] + ' -> ' + (diverge < len ? node.log[diverge].term : 'missing') + ')');
       }
 
       for (let i = Math.max(diverge, 1); i < len; i++) {
@@ -110,6 +116,7 @@ class InvariantChecker {
       prev.len = len;
       prev.lastTerm = lastTerm;
       prev.wasLeader = node.state === LEADER;
+      prev.term = node.currentTerm;
     }
   }
 
