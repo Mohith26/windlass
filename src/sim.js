@@ -57,6 +57,9 @@ const SIM_DEFAULTS = {
   dropRate: 0,
   dupRate: 0,
   raft: {},
+  // Optional hook used by the mutation tests to hand back a deliberately broken
+  // node. It runs on every node, including the ones rebuilt by a restart.
+  mutate: null,
 };
 
 class Cluster {
@@ -81,6 +84,7 @@ class Cluster {
 
     for (const id of this.ids) {
       const node = new RaftNode(id, this.ids, Object.assign({ rng: this.rng }, o.raft));
+      if (o.mutate) o.mutate(node);
       this.nodes.set(id, node);
       this.machines.set(id, new KvStore());
       this.disk.set(id, node.persistentState());
@@ -129,6 +133,7 @@ class Cluster {
     if (!this.down.has(id)) return;
     this.down.delete(id);
     const node = new RaftNode(id, this.ids, Object.assign({ rng: this.rng }, this.opts.raft));
+    if (this.opts.mutate) this.opts.mutate(node);
     node.restore(this.disk.get(id));
     node.resetElectionTimer(this.now);
     this.nodes.set(id, node);

@@ -27,6 +27,7 @@ const SCENARIO_DEFAULTS = {
   timeout: 2500,
   checkLinearizability: true,
   raft: {},
+  mutate: null,
 };
 
 function buildFaultScript(rng, opts) {
@@ -80,6 +81,7 @@ function runScenario(userOpts) {
   const cluster = new Cluster({
     n: opts.n, seed: opts.seed, dropRate: opts.dropRate, dupRate: opts.dupRate,
     latencyMin: opts.latencyMin, latencyMax: opts.latencyMax, raft: opts.raft,
+    mutate: opts.mutate,
   });
   const checker = new InvariantChecker().attach(cluster);
   const pool = new ClientPool(cluster, {
